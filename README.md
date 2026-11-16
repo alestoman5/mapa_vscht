@@ -16,6 +16,7 @@ python3 -m http.server 8000
 - hledání místností (`A136`, `BI`, `B1-410`…), odkaz přímo na místnost přes `#A136`
 - trasa mezi místnostmi a vchody přes chodby, schodiště a výtahy, volba „bez schodů“
 - Driver mode: parodie na autonavigaci – plyn, brzda, tempomat, hlasové pokyny, hlášení policie, nehod a dalších událostí
+- skutečná poloha přes GPS (modrá tečka), start trasy z aktuální polohy a jízda Driver modu podle GPS; vyžaduje HTTPS
 - jeden easter egg v 1. patře budovy A
 
 ## Soubory

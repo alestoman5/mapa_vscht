@@ -322,7 +322,48 @@
     entrances.push({ label, b: vk.slice(-1), door: best ? best.id : null, room: hall.i, x: best ? best.x : hall.lx, y: best ? best.y : hall.ly });
   }
 
-  const api = { FLOORS, TYPE, rooms, doors, vgroups, route, maneuvers, simplify, search, norm, roomAt, inRoom, floorName, floorShort, entrances, dist };
+
+  /* ---------- GPS: WGS84 -> S-JTSK (Křovák) -> lokální souřadnice mapy ---------- */
+  const ORIGIN = { X: -744790.0, Y: -1041090.0 }; // posun použitý při exportu dat (EPSG:5514)
+  function wgsToLocal(lat, lon) {
+    const rad = Math.PI / 180;
+    // 1) WGS84 geodetické -> geocentrické
+    let a = 6378137.0, f = 1 / 298.257223563, e2 = 2 * f - f * f;
+    let B = lat * rad, L = lon * rad, Nn = a / Math.sqrt(1 - e2 * Math.sin(B) ** 2);
+    const x1 = Nn * Math.cos(B) * Math.cos(L), y1 = Nn * Math.cos(B) * Math.sin(L), z1 = Nn * (1 - e2) * Math.sin(B);
+    // 2) Helmertova transformace WGS84 -> Bessel (inverze towgs84 570.8,85.7,462.8,4.998,1.587,5.261,3.56)
+    const dx = 570.8, dy = 85.7, dz = 462.8, as = Math.PI / 648000, rx = 4.998 * as, ry = 1.587 * as, rz = 5.261 * as, m = 1 + 3.56e-6;
+    const tx = (x1 - dx) / m, ty = (y1 - dy) / m, tz = (z1 - dz) / m;
+    const x2 = tx + rz * ty - ry * tz, y2 = -rz * tx + ty + rx * tz, z2 = ry * tx - rx * ty + tz;
+    // 3) geocentrické -> geodetické na Besselově elipsoidu
+    a = 6377397.155; e2 = 0.006674372230614; const e = Math.sqrt(e2);
+    const p = Math.hypot(x2, y2); L = Math.atan2(y2, x2); B = Math.atan2(z2, p * (1 - e2));
+    for (let i = 0; i < 6; i++) { Nn = a / Math.sqrt(1 - e2 * Math.sin(B) ** 2); B = Math.atan2(z2 + e2 * Nn * Math.sin(B), p); }
+    // 4) Křovákovo zobrazení
+    const phi0 = 49.5 * rad, lam0 = (24 + 50 / 60) * rad, s0 = 78.5 * rad, k1 = 0.9999;
+    const alpha = Math.sqrt(1 + e2 * Math.cos(phi0) ** 4 / (1 - e2)), u0 = Math.asin(Math.sin(phi0) / alpha);
+    const g = Math.pow((1 + e * Math.sin(phi0)) / (1 - e * Math.sin(phi0)), alpha * e / 2);
+    const k = Math.tan(u0 / 2 + Math.PI / 4) / Math.pow(Math.tan(phi0 / 2 + Math.PI / 4), alpha) * g;
+    const n0 = a * Math.sqrt(1 - e2) / (1 - e2 * Math.sin(phi0) ** 2), n = Math.sin(s0), rho0 = k1 * n0 / Math.tan(s0);
+    const ad = (90 - (59 + 42 / 60 + 42.69689 / 3600)) * rad;
+    const gfi = Math.pow((1 + e * Math.sin(B)) / (1 - e * Math.sin(B)), alpha * e / 2);
+    const u = 2 * (Math.atan(k * Math.pow(Math.tan(B / 2 + Math.PI / 4), alpha) / gfi) - Math.PI / 4);
+    const dv = (lam0 - L) * alpha;
+    const s = Math.asin(Math.cos(ad) * Math.sin(u) + Math.sin(ad) * Math.cos(u) * Math.cos(dv));
+    const d = Math.asin(Math.cos(u) * Math.sin(dv) / Math.cos(s));
+    const eps = n * d, rho = rho0 * Math.pow(Math.tan(s0 / 2 + Math.PI / 4), n) / Math.pow(Math.tan(s / 2 + Math.PI / 4), n);
+    const E = -rho * Math.sin(eps), Nth = -rho * Math.cos(eps); // EPSG:5514
+    return { x: E - ORIGIN.X, y: -(Nth - ORIGIN.Y), E, N: Nth };
+  }
+  // nejbližší použitelná místnost k bodu na daném patře
+  function nearestRoom(x, y, fl, maxD) {
+    const r = roomAt(x, y, fl); if (r && r.reach) return r;
+    let best = null, bd = maxD || 40;
+    for (const o of rooms) if (o.fl === fl && o.reach) { const d = Math.hypot(o.lx - x, o.ly - y) - o.ir; if (d < bd) { bd = d; best = o; } }
+    return best;
+  }
+
+  const api = { wgsToLocal, nearestRoom, FLOORS, TYPE, rooms, doors, vgroups, route, maneuvers, simplify, search, norm, roomAt, inRoom, floorName, floorShort, entrances, dist };
   root.NAV = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

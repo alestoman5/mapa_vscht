@@ -174,6 +174,14 @@
       for (const ep of [st.from, st.to]) if (ep) { const p = epPoint(ep); if (p.fl === st.floor) (ep === st.to ? pin : q => dot(q, '#3b5bdb'))(toScreen(p.x, p.y)); }
     }
     if (!rt && st.floor === 0 && view.s > 2.2 && !driving) for (const e of N.entrances) entMark(toScreen(e.x, e.y), e.b);
+    if (gps.pos && !driving) {
+      const p = toScreen(gps.pos.x, gps.pos.y), ra = Math.min(gps.pos.acc * view.s, 2000);
+      if (p.x > -ra && p.x < W + ra && p.y > -ra && p.y < H + ra) {
+        ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(ra, 12), 0, 7); ctx.fillStyle = 'rgba(28,126,214,.14)'; ctx.fill(); ctx.strokeStyle = 'rgba(28,126,214,.45)'; ctx.lineWidth = 1; ctx.stroke();
+        if (gps.pos.head != null) { const h = gps.pos.head * Math.PI / 180 + view.rot - Math.PI / 2; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.arc(p.x, p.y, 30, h - 0.5, h + 0.5); ctx.closePath(); ctx.fillStyle = 'rgba(28,126,214,.35)'; ctx.fill(); }
+        ctx.beginPath(); ctx.arc(p.x, p.y, 10 + Math.sin(now / 400), 0, 7); ctx.fillStyle = '#fff'; ctx.fill(); ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, 7); ctx.fillStyle = '#1c7ed6'; ctx.fill();
+      }
+    }
     for (const f of overlays) f(ctx, now, 'screen');
   }
   const markers = []; // klikací značky přestupu
@@ -196,7 +204,7 @@
   function frame(now) {
     if (anim) anim(now);
     for (const f of tickers) f(now);
-    if (dirty || st.route || st.hl || (EGG && st.floor === EGG.fl)) { dirty = false; draw(now); }
+    if (dirty || st.route || st.hl || gps.pos || (EGG && st.floor === EGG.fl)) { dirty = false; draw(now); }
     requestAnimationFrame(frame);
   }
   const tickers = [];
@@ -367,7 +375,7 @@
   function resHTML(r) {
     return `<button class="res" data-room="${r.i}"><span class="dot" style="background:${PAL.light.t[r.type]}">${ICON(r)}</span><span><b>${esc(r.lab && r.type === 1 && r.alias ? r.alias : r.title)}</b>${r.alias ? `<span class="al">${esc(r.type === 1 ? r.code : r.alias)}</span>` : ''}<small>Budova ${r.b} · ${N.floorName(r.fl)} · ${r.lift ? 'výtah' : r.stairs ? 'schodiště' : N.TYPE[r.type].toLowerCase()}</small></span></button>`;
   }
-  const entHTML = () => '<div class="res-h">Vchody</div>' + N.entrances.map((e, i) => `<button class="res" data-ent="${i}"><span class="dot" style="background:#d3f9d8">🚪</span><span><b>${esc(e.label)}</b><small>Přízemí</small></span></button>`).join('');
+  const entHTML = () => (st.picking ? `<button class="res" data-gps="1"><span class="dot" style="background:#d0ebff">📍</span><span><b>Moje poloha</b><small>podle GPS, na patře ${N.floorShort(st.floor)} (právě zobrazené)</small></span></button>` : '') + '<div class="res-h">Vchody</div>' + N.entrances.map((e, i) => `<button class="res" data-ent="${i}"><span class="dot" style="background:#d3f9d8">🚪</span><span><b>${esc(e.label)}</b><small>Přízemí</small></span></button>`).join('');
   function runSearch() {
     const v = q.value.trim(); $('#clear').hidden = !q.value; let h = '';
     if (!v) { h = st.picking ? entHTML() : ''; }
@@ -379,11 +387,12 @@
     results.innerHTML = h; results.hidden = !h; $('#chips').hidden = !!h;
   }
   function closeResults() { results.hidden = true; $('#chips').hidden = false; q.value = ''; $('#clear').hidden = true; q.blur(); q.placeholder = 'Hledat místnost – A136, BI, AS12…'; }
+  function closeResultsKeep() { results.hidden = true; $('#chips').hidden = false; q.value = ''; $('#clear').hidden = true; q.blur(); }
   function openPicker() { q.placeholder = st.picking === 'from' ? 'Odkud vyrážíš?' : 'Kam to bude?'; q.value = ''; runSearch(); q.focus(); }
   q.addEventListener('input', runSearch); q.addEventListener('focus', runSearch);
   q.addEventListener('keydown', e => { if (e.key === 'Enter') { const f = results.querySelector('.res'); if (f) f.click(); } else if (e.key === 'Escape') closeResults(); });
   $('#clear').onclick = () => { q.value = ''; runSearch(); q.focus(); };
-  results.addEventListener('click', e => { const b = e.target.closest('.res'); if (!b) return; choose(b.dataset.ent != null ? { ent: +b.dataset.ent } : { room: +b.dataset.room }); });
+  results.addEventListener('click', e => { const b = e.target.closest('.res'); if (!b) return; if (b.dataset.gps) { closeResultsKeep(); fromGps(); return; } choose(b.dataset.ent != null ? { ent: +b.dataset.ent } : { room: +b.dataset.room }); });
   $('#chips').addEventListener('click', e => {
     const c = e.target.closest('button'); if (!c) return; const k = c.dataset.chip;
     if (k === 'lecture') {
@@ -399,6 +408,48 @@
     }
   });
   $('#clear').addEventListener('click', () => { if (!q.value) closeResults(); });
+
+  /* ---------- GPS poloha ---------- */
+  const gps = { on: false, pos: null, watch: null, pending: null, told: false };
+  const locBtn = $('#locate');
+  function gpsStart(cb) {
+    if (!navigator.geolocation) { toast('Tenhle prohlížeč polohu neumí.'); return; }
+    if (cb) gps.pending = cb;
+    if (gps.on) { if (gps.pos && gps.pending) { const f = gps.pending; gps.pending = null; f(gps.pos); } return; }
+    gps.on = true; locBtn.classList.add('wait');
+    gps.watch = navigator.geolocation.watchPosition(p => {
+      const w = N.wgsToLocal(p.coords.latitude, p.coords.longitude), first = !gps.pos;
+      gps.pos = { x: w.x, y: w.y, acc: p.coords.accuracy || 30, head: p.coords.heading != null && !isNaN(p.coords.heading) && p.coords.speed > 0.4 ? p.coords.heading : null, t: performance.now() };
+      locBtn.classList.remove('wait'); locBtn.classList.add('on'); dirty = true;
+      const far = Math.hypot(w.x, w.y);
+      if (first) {
+        if (far > 350) toast(`Jsi asi ${far > 1500 ? (far / 1000).toFixed(1) + ' km' : Math.round(far / 10) * 10 + ' m'} od budov A a B – na mapě tě neuvidíš.`, 4500);
+        else { if (!gps.pending) gpsCenter(); toast(`Poloha nalezena (±${Math.round(gps.pos.acc)} m). GPS nepozná patro a uvnitř budovy bývá nepřesná.`, 4500); }
+      }
+      if (gps.pending) { const f = gps.pending; gps.pending = null; f(gps.pos); }
+    }, e => {
+      if (e.code !== 1 && gps.pos) return; // přechodný výpadek signálu: sledování běží dál
+      gpsStop(); toast(e.code === 1 ? 'Přístup k poloze je zakázaný. Povol ho v nastavení prohlížeče.' : location.protocol !== 'https:' && location.hostname !== 'localhost' ? 'Poloha funguje jen přes HTTPS.' : 'Polohu se nepodařilo zjistit.', 4500);
+    }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
+  }
+  function gpsStop() { if (gps.watch != null) navigator.geolocation.clearWatch(gps.watch); gps.on = false; gps.pos = null; gps.watch = null; gps.pending = null; locBtn.classList.remove('on', 'wait'); dirty = true; }
+  function gpsCenter() { animTo({ x: gps.pos.x, y: gps.pos.y, s: Math.max(view.s, 7) }, 450); }
+  locBtn.onclick = () => {
+    if (!gps.on) { gpsStart(); return; }
+    if (!gps.pos) return;
+    const p = toScreen(gps.pos.x, gps.pos.y);
+    if (Math.hypot(p.x - W / 2, p.y - H / 2) < 30) { gpsStop(); toast('Sledování polohy vypnuto.', 1500); } else gpsCenter();
+  };
+  // start trasy z aktuální polohy (patro = to, které je právě zobrazené)
+  function fromGps() {
+    toast('Zjišťuji polohu…', 1500);
+    gpsStart(pos => {
+      const r = N.nearestRoom(pos.x, pos.y, st.floor, 45);
+      if (!r) { toast('Podle GPS nejsi v budově A ani B (nebo je poloha moc nepřesná). Vyber start ručně.', 4500); return; }
+      toast(`Start: ${r.title}, ${N.floorName(r.fl)}. Jsi na jiném patře? Přepni ho a zvol polohu znovu.`, 4500);
+      choose({ room: r.i });
+    });
+  }
 
   /* ---------- drobnosti ---------- */
   let toastT = 0;
@@ -441,7 +492,7 @@
   };
 
   /* ---------- start ---------- */
-  window.APP = { N, st, view, pal, overlays, tickers, requestDraw, toScreen, toWorld, setFloor, toast, confetti, isEgg, epLabel, epRoom, PSI, EGG, renderSheet, showLeg, fitAll, resize, get W() { return W; }, get H() { return H; } };
+  window.APP = { gps, N, st, view, pal, overlays, tickers, requestDraw, toScreen, toWorld, setFloor, toast, confetti, isEgg, epLabel, epRoom, PSI, EGG, renderSheet, showLeg, fitAll, resize, get W() { return W; }, get H() { return H; } };
   window.addEventListener('resize', () => { resize(); });
   mqDark.addEventListener('change', requestDraw);
   resize(); fitAll(true); updFloors(); updCompass();

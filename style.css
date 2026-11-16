@@ -173,3 +173,10 @@ body.driving #stage { transform: perspective(900px) rotateX(54deg) scale(1.9); }
 #rep-cancel { width: 100%; height: 46px; margin-top: 16px; border-radius: 23px; background: #eef0f3; font-weight: 600; }
 .arrive { text-align: center; }
 .arrive .big { font-size: 46px; }
+
+/* GPS */
+#locate { color: var(--mute); }
+#locate.on { color: #1c7ed6; }
+#locate.wait svg { animation: spin 1.2s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#drv-gps.on { background: #1c7ed6; border-color: #fff; }

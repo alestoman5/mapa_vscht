@@ -68,7 +68,7 @@
     seedReports(legs);
     D = { legs, li: 0, s: 0, v: 0, heading: null, cruise: false, said: {}, pause: 0, done: false, t: performance.now(), fined: 0, overT: 0, total: legs.reduce((s, l) => s + l.len, 0) };
     document.body.classList.add('driving'); A.resize(); $('#drv').hidden = false; $('#drv-alert').hidden = true; $('#rep-modal').hidden = true;
-    $('#cruise').classList.remove('on'); $('#gas').classList.add('hint'); $('#pts').textContent = points;
+    $('#cruise').classList.remove('on'); $('#drv-gps').classList.remove('on'); $('#gas').classList.add('hint'); $('#pts').textContent = points;
     A.view.ax = 0.5; A.view.ay = 0.72; A.view.s = 26; A.setFloor(legs[0].fl);
     const p = posAt(legs[0], 0); D.heading = p.h == null ? 0 : p.h; A.view.x = p.x; A.view.y = p.y; A.view.rot = -D.heading - Math.PI / 2;
     const dest = A.epLabel(A.st.to).split(' · ')[0];
@@ -92,6 +92,18 @@
       D.pause -= dt; D.v = 0;
       if (D.pause <= 0 && D.next != null) { D.li = D.next; D.s = 0; D.next = null; D.said = {}; A.setFloor(D.legs[D.li].fl); const p = posAt(D.legs[D.li], 0); if (p.h != null) D.heading = p.h; beep(880, 160); }
     } else if (!D.done) {
+      if (D.gps && A.gps.pos) { // jízda podle skutečné polohy: promítnutí GPS na trasu
+        const g = A.gps.pos; let bs = D.s, bd = 1e9;
+        for (let i = 1; i < leg.pts.length; i++) {
+          if (leg.cum[i] < D.s - 6 || leg.cum[i - 1] > D.s + 45) continue;
+          const a = leg.pts[i - 1], b = leg.pts[i], L2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2 || 1e-9, t = Math.max(0, Math.min(1, ((g.x - a.x) * (b.x - a.x) + (g.y - a.y) * (b.y - a.y)) / L2));
+          const dd = Math.hypot(a.x + (b.x - a.x) * t - g.x, a.y + (b.y - a.y) * t - g.y);
+          if (dd < bd) { bd = dd; bs = leg.cum[i - 1] + t * (leg.cum[i] - leg.cum[i - 1]); }
+        }
+        if (leg.len - bs < Math.max(6, Math.min(g.acc, 12))) bs = leg.len;
+        D.v = Math.max(0, Math.min(VMAX, (bs - D.s) * 0.9)); D.s = Math.min(leg.len, D.s + D.v * dt);
+        if (leg.len - D.s < 0.05) endOfLeg(leg);
+      } else {
       // pedály
       const remain = leg.len - D.s, vBrake = Math.sqrt(2 * 5 * Math.max(0, remain)) + 0.4;
       let acc = -1.2;
@@ -99,6 +111,7 @@
       D.v = Math.max(0, Math.min(VMAX, D.v + acc * dt)); if (D.v > vBrake) D.v = vBrake;
       D.s = Math.min(leg.len, D.s + D.v * dt);
       if (leg.len - D.s < 0.05) endOfLeg(leg);
+      }
     }
     const cl = D.legs[D.li], p = posAt(cl, D.s);
     if (p.h != null) { let d = p.h - D.heading; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; D.heading += d * Math.min(1, dt * 5); }
@@ -226,6 +239,13 @@
   $('#cruise').onclick = () => setCruise(!D.cruise);
   window.addEventListener('keydown', e => { if (!D) return; if (e.key === 'ArrowUp' || e.key === 'w') { keys.gas = true; $('#gas').classList.remove('hint'); } else if (e.key === 'ArrowDown' || e.key === 's' || e.key === ' ') keys.brake = true; else if (e.key === 'Escape') stop(); else if (e.key === 'c') setCruise(!D.cruise); else return; e.preventDefault(); });
   window.addEventListener('keyup', e => { if (e.key === 'ArrowUp' || e.key === 'w') keys.gas = false; else if (e.key === 'ArrowDown' || e.key === 's' || e.key === ' ') keys.brake = false; });
+  $('#drv-gps').onclick = () => {
+    if (!D) return;
+    if (D.gps) { D.gps = false; $('#drv-gps').classList.remove('on'); A.toast('Jízda podle GPS vypnuta, zpět na pedály.', 1800); return; }
+    A.gps.pending = null; $('#drv-gps').classList.add('on'); D.gps = true; $('#gas').classList.remove('hint');
+    A.toast('📡 Jedu podle tvé skutečné polohy. Běž po trase – auto pojede s tebou.', 3500);
+    if (!A.gps.on) $('#locate').click();
+  };
   $('#drv-exit').onclick = stop;
   $('#drv-mute').onclick = () => { muted = !muted; $('#drv-mute').textContent = muted ? '🔇' : '🔊'; if (muted && window.speechSynthesis) speechSynthesis.cancel(); };
   $('#horn').onclick = () => { beep(392, 420, 'sawtooth', 0.09); beep(494, 420, 'sawtooth', 0.09); A.toast(['📯 Tůůt! Chodci na chodbě nadskočili.', '📯 Tůůt! Dveře laborky se uraženě zavřely.', '📯 Tůůt! Někdo upustil kádinku.'][Math.floor(Math.random() * 3)], 1600); };

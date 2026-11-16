@@ -38,6 +38,7 @@
 <!-- pravý sloupec: patra + kompas -->
 <div id="side">
   <button id="compass" class="fab" aria-label="Natočit na sever"><svg viewBox="0 0 24 24"><path d="M12 3l4 9h-8z" fill="#e03131" stroke="none"/><path d="M12 21l-4-9h8z" fill="currentColor" stroke="none" opacity=".35"/></svg></button>
+  <button id="locate" class="fab" aria-label="Moje poloha"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="7.5"/><path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4"/></svg></button>
   <div id="floors" role="radiogroup" aria-label="Patro"></div>
   <div id="zoom">
     <button id="zin" aria-label="Přiblížit">+</button>
@@ -62,6 +63,7 @@
     <div id="speedo"><b id="kmh">0</b><span>km/h</span></div>
   </div>
   <div id="drv-right">
+    <button id="drv-gps" class="rbtn" aria-label="Jet podle GPS">📡</button>
     <button id="horn" class="rbtn" aria-label="Klakson">📯</button>
     <button id="report" class="rbtn big" aria-label="Nahlásit">
       <svg viewBox="0 0 24 24"><path d="M12 3l10 18H2z" fill="#fff" stroke="none"/><path d="M12 10v5M12 17.500v.01" stroke="#f76707" stroke-width="2.200"/></svg>
